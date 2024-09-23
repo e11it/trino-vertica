@@ -61,3 +61,8 @@ trino> select * from vertica.trino.test;
  1 | 1.23 | 2023-06-07 | 2023-06-07 11:36:19.251 | Vertica
 (1 row)
 ```
+
+### Notes:
+
+- vertica drivers: https://repo.maven.apache.org/maven2/com/vertica/jdbc/vertica-jdbc/
+- build without tests: `mvn package -Dmaven.test.skip`
