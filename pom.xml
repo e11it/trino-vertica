@@ -4,7 +4,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>425</version>
+        <version>458</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -13,7 +13,7 @@
     <description>Trino - Vertica JDBC Connector</description>
 
     <properties>
-        <air.main.basedir>${project.parent.basedir}</air.main.basedir>
+        <air.main.basedir>/Users/makarovil/work/trino/</air.main.basedir>
     </properties>
 
     <dependencies>
