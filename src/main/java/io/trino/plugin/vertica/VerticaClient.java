@@ -152,6 +152,7 @@ import static io.trino.plugin.jdbc.StandardColumnMappings.varcharReadFunction;
 import static io.trino.plugin.jdbc.StandardColumnMappings.varcharWriteFunction;
 import static io.trino.plugin.jdbc.TypeHandlingJdbcSessionProperties.getUnsupportedTypeHandling;
 import static io.trino.plugin.jdbc.UnsupportedTypeHandling.CONVERT_TO_VARCHAR;
+import static io.trino.plugin.vertica.VerticaSessionProperties.isEnableConvertDecimalToVarchar;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
@@ -194,6 +195,7 @@ public class VerticaClient
     private static final Logger log = Logger.get(VerticaClient.class);
     private static final int ARRAY_RESULT_SET_VALUE_COLUMN = 2;
     private static final int POSTGRESQL_MAX_SUPPORTED_TIMESTAMP_PRECISION = 6;
+    private static final int TRINO_MAX_DECIMAL_PRECISION = 38;
     private final Type uuidType;
     private final List<String> tableTypes;
     private final boolean statisticsEnabled;
@@ -203,6 +205,7 @@ public class VerticaClient
     @Inject
     public VerticaClient(
             BaseJdbcConfig config,
+            //VerticaConfig verticaConfig,
             JdbcStatisticsConfig statisticsConfig,
             ConnectionFactory connectionFactory,
             QueryBuilder queryBuilder,
@@ -218,12 +221,15 @@ public class VerticaClient
         log.info("statisticsEnabled:" + this.statisticsEnabled);
         this.uuidType = typeManager.getType(new TypeSignature(StandardTypes.UUID));
 
+//        Predicate<ConnectorSession> convertDecimalToVarcharEnabled = VerticaSessionProperties::isEnableConvertDecimalToVarchar;
         this.connectorExpressionRewriter = JdbcConnectorExpressionRewriterBuilder.newBuilder()
                 .addStandardRules(this::quoted)
                 // TODO allow all comparison operators for numeric types
+                // TODO add timestamp comparison with string
                 .add(new RewriteComparison(ImmutableSet.of(ComparisonOperator.EQUAL, ComparisonOperator.NOT_EQUAL)))
                 .add(new RewriteIn())
                 .withTypeClass("integer_type", ImmutableSet.of("tinyint", "smallint", "integer", "bigint"))
+                .withTypeClass("numeric_type", ImmutableSet.of("tinyint", "smallint", "integer", "bigint", "decimal", "double"))
                 .map("$add(left: integer_type, right: integer_type)").to("left + right")
                 .map("$subtract(left: integer_type, right: integer_type)").to("left - right")
                 .map("$multiply(left: integer_type, right: integer_type)").to("left * right")
@@ -236,6 +242,10 @@ public class VerticaClient
                 .map("$not(value: boolean)").to("NOT value")
                 .map("$is_null(value)").to("value IS NULL")
                 .map("$nullif(first, second)").to("NULLIF(first, second)")
+                .map("$less_than(left: numeric_type, right: numeric_type)").to("left < right")
+                .map("$equal(left: date, right: varchar)").to("left = right")
+                .map("$less_than(left: date, right: varchar)").to("left < right")
+                .map("$more_than(left: date, right: varchar)").to("left > right")
                 .build();
 
         JdbcTypeHandle bigintTypeHandle = new JdbcTypeHandle(Types.BIGINT, Optional.of("bigint"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
@@ -295,21 +305,29 @@ public class VerticaClient
             case Types.NUMERIC:
             case Types.DECIMAL:
             {
-                // example: typeHandle(1):JdbcTypeHandle{jdbcType=2, jdbcTypeName=Numeric, columnSize=18, decimalDigits=8}
                 int columnSize = typeHandle.requiredColumnSize();
                 int precision;
                 int decimalDigits = typeHandle.decimalDigits().orElse(0);
                 precision = columnSize + max(-decimalDigits, 0); // Map decimal(p, -s) (negative scale) to decimal(p+s, 0).
                 log.info("decimal type (" + precision + "," + max(decimalDigits, 0) + ")");
+                if (precision > TRINO_MAX_DECIMAL_PRECISION || precision <= 0) {
+                    if (isEnableConvertDecimalToVarchar(session) == true) {
+                        return mapToUnboundedVarchar(typeHandle);
+                    }
+                    return Optional.of(doubleColumnMapping());
+                }
+
                 return Optional.of(decimalColumnMapping(createDecimalType(precision, max(decimalDigits, 0)), UNNECESSARY));
             }
 
             case Types.CHAR:
                 return Optional.of(charColumnMapping(typeHandle.requiredColumnSize()));
 
+            case Types.LONGVARCHAR:
             case Types.VARCHAR:
                 return Optional.of(varcharColumnMapping(typeHandle.requiredColumnSize()));
 
+            case Types.LONGVARBINARY:
             case Types.BINARY:
             case Types.VARBINARY:
                 return Optional.of(varbinaryColumnMapping());
@@ -388,9 +406,9 @@ public class VerticaClient
             return new JdbcTypeHandle(
                     typeInfo.getSQLType(pgElementOid),
                     Optional.of(typeInfo.getPGType(pgElementOid)),
-                    arrayTypeHandle.getColumnSize(),
-                    arrayTypeHandle.getDecimalDigits(),
-                    arrayTypeHandle.getArrayDimensions(),
+                    arrayTypeHandle.ColumnSize(),
+                    arrayTypeHandle.DecimalDigits(),
+                    arrayTypeHandle.ArrayDimensions(),
                     Optional.empty());
         }
         catch (SQLException e) {
@@ -689,7 +707,7 @@ public class VerticaClient
             String orderBy = sortItems.stream()
                     .map(sortItem -> {
                         String ordering = sortItem.sortOrder().isAscending() ? "ASC" : "DESC";
-                        String nullsHandling = ""; //sortItem.getSortOrder().isNullsFirst() ? "NULLS FIRST" : "NULLS LAST";
+                        String nullsHandling = "";
                         String collation = "";
                         return format("%s %s %s %s", quoted(sortItem.column().getColumnName()), collation, ordering, nullsHandling);
                     })
@@ -739,8 +757,7 @@ public class VerticaClient
     {
         checkArgument(table.isNamedRelation(), "Relation is not a table: %s", table);
 
-        try (Connection connection = connectionFactory.openConnection(session);
-                Handle handle = Jdbi.open(connection)) {
+        try (Connection connection = connectionFactory.openConnection(session); Handle handle = Jdbi.open(connection)) {
             StatisticsDao statisticsDao = new StatisticsDao(handle);
 
             Optional<Long> optionalRowCount = readRowCountTableStat(statisticsDao, table);
