@@ -14,6 +14,7 @@
 package io.trino.plugin.vertica;
 
 import io.airlift.configuration.Config;
+import io.airlift.configuration.ConfigDescription;
 import io.airlift.configuration.DefunctConfig;
 import io.airlift.configuration.LegacyConfig;
 import jakarta.validation.constraints.NotNull;
@@ -23,6 +24,7 @@ public class VerticaConfig
 {
     private ArrayMapping arrayMapping = ArrayMapping.DISABLED;
     private boolean includeSystemTables;
+    private boolean tableStatisticsEnabled = true;
     private boolean enableConvertDecimalToVarchar = true;
 
     public enum ArrayMapping
@@ -56,5 +58,18 @@ public class VerticaConfig
     {
         this.enableConvertDecimalToVarchar = enableConvertDecimalToVarchar;
         return this;
+    }
+
+    @Config("vertica.table-statistics-enabled")
+    @ConfigDescription("Enable use of table statistics")
+    public VerticaConfig setTableStatisticsEnabled(boolean tableStatisticsEnabled)
+    {
+        this.tableStatisticsEnabled = tableStatisticsEnabled;
+        return this;
+    }
+
+    public boolean isTableStatisticsEnabled()
+    {
+        return tableStatisticsEnabled;
     }
 }

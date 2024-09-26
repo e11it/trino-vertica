@@ -153,6 +153,7 @@ import static io.trino.plugin.jdbc.StandardColumnMappings.varcharWriteFunction;
 import static io.trino.plugin.jdbc.TypeHandlingJdbcSessionProperties.getUnsupportedTypeHandling;
 import static io.trino.plugin.jdbc.UnsupportedTypeHandling.CONVERT_TO_VARCHAR;
 import static io.trino.plugin.vertica.VerticaSessionProperties.isEnableConvertDecimalToVarchar;
+import static io.trino.plugin.vertica.VerticaSessionProperties.isStatisticsEnabled;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
@@ -755,6 +756,9 @@ public class VerticaClient
     private TableStatistics readTableStatistics(ConnectorSession session, JdbcTableHandle table)
             throws SQLException
     {
+        if (!isStatisticsEnabled(session)) {
+            return TableStatistics.empty();
+        }
         checkArgument(table.isNamedRelation(), "Relation is not a table: %s", table);
 
         try (Connection connection = connectionFactory.openConnection(session); Handle handle = Jdbi.open(connection)) {

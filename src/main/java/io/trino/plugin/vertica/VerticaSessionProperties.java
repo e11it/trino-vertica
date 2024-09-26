@@ -30,6 +30,7 @@ public class VerticaSessionProperties
 {
     public static final String ARRAY_MAPPING = "array_mapping";
     public static final String CONVERT_DECIMAL_TO_VARCHAR = "enable_convert_decimal_to_varchar";
+    private static final String STATISTICS_ENABLED = "statistics_enabled";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -47,6 +48,11 @@ public class VerticaSessionProperties
                         CONVERT_DECIMAL_TO_VARCHAR,
                         "Enable converting decimal columns to varchar",
                         verticaConfig.isEnableConvertDecimalToVarchar(),
+                        false),
+                booleanProperty(
+                        STATISTICS_ENABLED,
+                        "Expose table statistics",
+                        verticaConfig.isTableStatisticsEnabled(),
                         false));
     }
 
@@ -64,5 +70,10 @@ public class VerticaSessionProperties
     public static boolean isEnableConvertDecimalToVarchar(ConnectorSession session)
     {
         return session.getProperty(CONVERT_DECIMAL_TO_VARCHAR, Boolean.class);
+    }
+
+    public static boolean isStatisticsEnabled(ConnectorSession session)
+    {
+        return session.getProperty(STATISTICS_ENABLED, Boolean.class);
     }
 }
